@@ -1,0 +1,56 @@
+// Transfer entrypoint
+export type atomic_trans =
+// @layout:comb
+{
+    amount: nat,
+   to_      : address,
+   token_id : nat,
+};
+
+type transfer_from =
+// @layout:comb
+{
+   from_ : address,
+   txs   : list<atomic_trans>,
+};
+
+export type transfer = list<transfer_from>;
+
+export type request =
+// @layout:comb
+{
+   owner    : address,
+   token_id : nat,
+};
+
+type callback =
+// @layout:comb
+{
+   request : request,
+   balance : nat,
+};
+
+export type balance_of =
+// @layout:comb
+{
+   requests : list<request>,
+   callback : contract<list<callback>>,
+};
+
+
+export type mint =
+// @layout:comb
+{
+   address: address,
+    amount : nat,
+    token_id: nat
+};
+
+
+
+export type parameter =
+// @layout:comb
+| ["Balance_of", balance_of] | ["Mint", mint] | ["Transfer", transfer] 
+
+
+

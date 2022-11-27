@@ -1,0 +1,282 @@
+{ parameter
+    (or (or (or (address %addNFT) (pair %betNFT (nat %id) (address %nftaddress)))
+            (or (address %removeNFT) (nat %result)))
+        (pair %setFloorPrice (address %address) (nat %price))) ;
+  storage
+    (pair (pair (pair (map %each_bet address nat) (set %each_nft (pair (address %address) (nat %id))))
+                (map %floor_price address nat)
+                (nat %total_bet))
+          (set %whitelisted address)) ;
+  code { UNPAIR ;
+         IF_LEFT
+           { IF_LEFT
+               { IF_LEFT
+                   { DUP 2 ;
+                     CDR ;
+                     DUP 2 ;
+                     PUSH bool True ;
+                     SWAP ;
+                     UPDATE ;
+                     DUP 3 ;
+                     CAR ;
+                     PAIR ;
+                     DUP ;
+                     CDR ;
+                     DUP 2 ;
+                     CAR ;
+                     CDR ;
+                     CDR ;
+                     DIG 4 ;
+                     CAR ;
+                     CDR ;
+                     CAR ;
+                     PUSH nat 0 ;
+                     DIG 5 ;
+                     SWAP ;
+                     SOME ;
+                     SWAP ;
+                     UPDATE ;
+                     PAIR ;
+                     DIG 2 ;
+                     CAR ;
+                     CAR ;
+                     PAIR ;
+                     PAIR ;
+                     NIL operation }
+                   { UNPAIR ;
+                     DUP 3 ;
+                     CAR ;
+                     CDR ;
+                     CAR ;
+                     DUP 3 ;
+                     GET ;
+                     IF_NONE { PUSH string "Can't happen" ; FAILWITH } {} ;
+                     DUP 4 ;
+                     CAR ;
+                     CAR ;
+                     CAR ;
+                     SENDER ;
+                     PAIR ;
+                     DUP 5 ;
+                     CAR ;
+                     CAR ;
+                     CAR ;
+                     DUP 3 ;
+                     DIG 2 ;
+                     UNPAIR ;
+                     GET ;
+                     IF_NONE { PUSH nat 0 } {} ;
+                     ADD ;
+                     SOME ;
+                     SENDER ;
+                     PAIR ;
+                     PAIR ;
+                     SWAP ;
+                     DUP 5 ;
+                     CAR ;
+                     CDR ;
+                     CDR ;
+                     ADD ;
+                     DUP 4 ;
+                     CONTRACT
+                       (or (pair %balance_of
+                              (list %requests (pair (address %owner) (nat %token_id)))
+                              (contract %callback
+                                 (list (pair (pair %request (address %owner) (nat %token_id)) (nat %balance)))))
+                           (or (pair %mint (address %address) (nat %amount) (nat %token_id))
+                               (list %transfer
+                                  (pair (address %from_) (list %txs (pair (nat %amount) (address %to_) (nat %token_id))))))) ;
+                     IF_NONE { PUSH string "Not a contract" ; FAILWITH } {} ;
+                     PUSH mutez 0 ;
+                     NIL (pair address (list (pair nat address nat))) ;
+                     NIL (pair nat address nat) ;
+                     DUP 7 ;
+                     SELF_ADDRESS ;
+                     PUSH nat 1 ;
+                     PAIR 3 ;
+                     CONS ;
+                     SENDER ;
+                     PAIR ;
+                     CONS ;
+                     RIGHT (pair address nat nat) ;
+                     RIGHT (pair (list (pair address nat)) (contract (list (pair (pair address nat) nat)))) ;
+                     TRANSFER_TOKENS ;
+                     DUP 6 ;
+                     CDR ;
+                     DUP 7 ;
+                     CAR ;
+                     CDR ;
+                     DUP 8 ;
+                     CAR ;
+                     CAR ;
+                     CDR ;
+                     DIG 5 ;
+                     UNPAIR ;
+                     UNPAIR ;
+                     UPDATE ;
+                     PAIR ;
+                     PAIR ;
+                     PAIR ;
+                     DUP ;
+                     CDR ;
+                     DIG 3 ;
+                     DUP 3 ;
+                     CAR ;
+                     CDR ;
+                     CAR ;
+                     PAIR ;
+                     DIG 2 ;
+                     CAR ;
+                     CAR ;
+                     PAIR ;
+                     PAIR ;
+                     DUP ;
+                     CDR ;
+                     DUP 2 ;
+                     CAR ;
+                     CDR ;
+                     DIG 6 ;
+                     CAR ;
+                     CAR ;
+                     CDR ;
+                     DIG 5 ;
+                     DIG 6 ;
+                     PAIR ;
+                     PUSH bool True ;
+                     SWAP ;
+                     UPDATE ;
+                     DIG 3 ;
+                     CAR ;
+                     CAR ;
+                     CAR ;
+                     PAIR ;
+                     PAIR ;
+                     PAIR ;
+                     NIL operation ;
+                     DIG 2 ;
+                     CONS } }
+               { IF_LEFT
+                   { DUP 2 ;
+                     CDR ;
+                     DUP 2 ;
+                     PUSH bool False ;
+                     SWAP ;
+                     UPDATE ;
+                     DUP 3 ;
+                     CAR ;
+                     PAIR ;
+                     DUP ;
+                     CDR ;
+                     DUP 2 ;
+                     CAR ;
+                     CDR ;
+                     CDR ;
+                     DIG 4 ;
+                     CAR ;
+                     CDR ;
+                     CAR ;
+                     DIG 4 ;
+                     NONE nat ;
+                     SWAP ;
+                     UPDATE ;
+                     PAIR ;
+                     DIG 2 ;
+                     CAR ;
+                     CAR ;
+                     PAIR ;
+                     PAIR ;
+                     NIL operation }
+                   { DUP 2 ;
+                     CAR ;
+                     CDR ;
+                     CDR ;
+                     SWAP ;
+                     EDIV ;
+                     IF_NONE { PUSH string "MOD by 0" ; FAILWITH } {} ;
+                     CDR ;
+                     SENDER ;
+                     PUSH nat 0 ;
+                     PAIR ;
+                     DUP 3 ;
+                     CAR ;
+                     CAR ;
+                     CAR ;
+                     LAMBDA
+                       (pair nat (pair (pair nat address) address nat))
+                       (pair nat address)
+                       { UNPAIR ;
+                         SWAP ;
+                         UNPAIR ;
+                         UNPAIR ;
+                         DIG 3 ;
+                         DUP 2 ;
+                         COMPARE ;
+                         GT ;
+                         IF { DIG 2 ; DROP }
+                            { SWAP ; DROP ; DUP 2 ; CAR ; DIG 2 ; CDR ; DIG 2 ; ADD } ;
+                         PAIR } ;
+                     DUP 4 ;
+                     APPLY ;
+                     DIG 3 ;
+                     DROP ;
+                     DUG 2 ;
+                     ITER { SWAP ; PAIR ; DUP 2 ; SWAP ; EXEC } ;
+                     SWAP ;
+                     DROP ;
+                     CDR ;
+                     NIL operation ;
+                     DUP 3 ;
+                     CAR ;
+                     CAR ;
+                     CDR ;
+                     ITER { UNPAIR ;
+                            CONTRACT
+                              (or (pair %balance_of
+                                     (list %requests (pair (address %owner) (nat %token_id)))
+                                     (contract %callback
+                                        (list (pair (pair %request (address %owner) (nat %token_id)) (nat %balance)))))
+                                  (or (pair %mint (address %address) (nat %amount) (nat %token_id))
+                                      (list %transfer
+                                         (pair (address %from_) (list %txs (pair (nat %amount) (address %to_) (nat %token_id))))))) ;
+                            IF_NONE { PUSH string "Not a contract" ; FAILWITH } {} ;
+                            PUSH mutez 0 ;
+                            NIL (pair address (list (pair nat address nat))) ;
+                            NIL (pair nat address nat) ;
+                            DIG 4 ;
+                            DUP 7 ;
+                            PUSH nat 1 ;
+                            PAIR 3 ;
+                            CONS ;
+                            SELF_ADDRESS ;
+                            PAIR ;
+                            CONS ;
+                            RIGHT (pair address nat nat) ;
+                            RIGHT (pair (list (pair address nat)) (contract (list (pair (pair address nat) nat)))) ;
+                            TRANSFER_TOKENS ;
+                            CONS } ;
+                     SWAP ;
+                     DROP } } }
+           { UNPAIR ;
+             DUP 3 ;
+             CDR ;
+             DUP 4 ;
+             CAR ;
+             CDR ;
+             CDR ;
+             DUP 5 ;
+             CAR ;
+             CDR ;
+             CAR ;
+             DIG 4 ;
+             SOME ;
+             DIG 4 ;
+             UPDATE ;
+             PAIR ;
+             DIG 2 ;
+             CAR ;
+             CAR ;
+             PAIR ;
+             PAIR ;
+             NIL operation } ;
+         PAIR } }
+

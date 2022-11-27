@@ -1,0 +1,291 @@
+const testaddr1 = ("tz1TGu6TN5GSez2ndXXeDX6LgUDvLzPLqgYV" as address);
+const testaddr2 = ("tz1KqTpEZ7Yob7QbPE4Hy4Wo8fHG8LhKxZSx" as address);
+
+const ownerAddress = ("tz1LcDMi4TAPL31ZRvkYDm4fAXFWRugCzxPY" as address);
+
+type id = nat; // id for the nfts
+
+/* List of endpoints of our contract */
+type parameter =
+  ["AddNFT", address]
+| ["RemoveNFT", address]
+| ["SetFloorPrice", {address: address, price: nat}]
+| ["BetNFT", {nftaddress: address, id: id}]
+| ["Result", {randomseed: nat}];
+
+/* Storage of our contract */
+type storage = {
+  whitelisted : set<address>,
+  floor_price : map<address, nat>, // floor price of each nft
+  each_bet: map<address, nat>, // each bet from each address
+  each_nft: set<{address: address, id: nat}>, // each nft. Address is the nft contract and id the nft id
+  total_bet: nat // total bet
+};
+type ret = [list <operation>, storage];
+
+export type atomic_trans =
+// @layout:comb
+{
+   to_      : address,
+   token_id : nat,
+};
+type transfer_from = {
+   from_ : address,
+   txs   : list<atomic_trans>,
+};
+
+#import "./nft.jsligo" "Interface"
+
+type nft_parameter = Interface.parameter;
+/*
+  ["BalanceOf", id]
+| ["Transfer", transfer_from];
+*/
+
+
+type nft_map = map <id, address>; // Who owns what nft
+type balance_map = map<address, nat>; // The balance of each address aka how many nft they have (useless I know)
+type nft_storage = {nft_map: nft_map, balance_map: balance_map};
+type nft_ret = [list <operation>, nft_storage];
+/* End of interface */
+
+/*
+type test_storage = {
+    randomseed: map<int, int>
+};
+const test_ctr = ([_action, store] : [int, test_storage]) : [list <operation>, test_storage] => {
+    return [list([]), store];
+}
+const main = test_ctr;
+*/
+
+
+
+const nft_contract = ([action, store] : [parameter, storage]) : ret => {
+    match (action, {
+        AddNFT: address => {
+            const whitelisted = Set.add(address, store.whitelisted);
+            const floor_price = Map.add(address, 0 as nat, store.floor_price);
+            return [list([]), { ...store, whitelisted, floor_price }];
+        },
+        RemoveNFT: address => {
+            const whitelisted = Set.remove(address, store.whitelisted);
+            const floor_price = Map.remove(address, store.floor_price);
+            return [list([]), { ...store, whitelisted, floor_price }];
+        },
+        SetFloorPrice: data => {
+            let {address, price} = data;
+            const floor_price = Map.update(address, Some(price), store.floor_price);
+            // assert(Tezos.get_sender() == ownerAddress); todo
+            return [list([]), { ...store, floor_price }];
+        },
+        BetNFT: data => {
+            let {nftaddress, id} = data;
+            const nft_price = match(Map.find_opt(nftaddress, store.floor_price), { Some: x => x , None: () => failwith("Can't happen") });
+            const my_amount = match(Map.find_opt(Tezos.get_sender(), store.each_bet), {
+                Some: x => x,
+                None: () => 0 as nat
+            });
+            const each_bet = Map.update(Tezos.get_sender(), Some(my_amount + nft_price), store.each_bet);
+            const total_bet = store.total_bet + nft_price;
+            const each_nft = Set.add({address: nftaddress, id: id}, store.each_nft);
+            // Transfer the nft to the contract
+            let receiver : contract<nft_parameter> =
+            match ((Tezos.get_contract_opt(nftaddress) as option<contract<nft_parameter>>), {
+                Some: (contract : contract<nft_parameter>) => contract,
+                None: () => failwith ("Not a contract")
+            });
+            const op = Tezos.transaction(Transfer(list([{from_: Tezos.get_sender(), txs: list([{amount: 1 as nat, to_: Tezos.get_self_address(), token_id: id}])}])), 0 as mutez, receiver);
+            return [list([op]), { ...store, each_bet, total_bet, each_nft }];
+        },
+        Result: data => {
+            let {randomseed} = data;
+            const winner = randomseed % store.total_bet as nat;
+            // Find the winner by looping through each_bet
+            let folded = (acc: [nat, address], j: [address, nat]) => {
+                // If our current accumulator is larger than the winner, we change nothing, the [1] is our res
+                // Otherwise, we add the current bet to the accumulator and change the [1] to the current address
+                let [current_acc, current_address] = acc;
+                if (current_acc > winner) { return [current_acc, current_address]; } else { return [current_acc + j[1], j[0]]; }
+            };
+            const [_, winner_address] =  Map.fold(folded, store.each_bet, [0 as nat, Tezos.get_sender()]);
+            // Transfer all nfts to the winner address
+            let folded = (acc: list<operation>, j: {address: address, id: nat}) => {
+                let {address, id} = j;
+                let receiver : contract<nft_parameter> =
+                match ((Tezos.get_contract_opt(address) as option<contract<nft_parameter>>), {
+                    Some: (contract : contract<nft_parameter>) => contract,
+                    None: () => failwith ("Not a contract")
+                });
+                const op = Tezos.transaction(Transfer(list([{from_: Tezos.get_self_address(), txs: list([{amount: 1 as nat, to_: winner_address, token_id: id}])}])), 0 as mutez, receiver);
+                return list([op, ...acc]);
+            };
+            let transfer_all_nfts = Set.fold(folded, store.each_nft, list([]));
+            return [transfer_all_nfts, store];
+        }
+    });
+};
+
+const main = nft_contract;
+
+const nft_interface = ([action, store] : [nft_parameter, nft_storage]) : nft_ret => {
+ return [list([]) as list<operation>,    // No operations
+ match (action, {
+  Transfer:(data:transfer_from) => {
+    let {from_, txs} = Option.unopt(List.head_opt(data));
+    let {amount, to_, token_id} = Option.unopt(List.head_opt(txs));
+    ignore(amount);
+    // Retrieve the nft from nft_map
+    let owner = match(Map.find_opt(token_id, store.nft_map), {
+      Some: (nft) => nft,
+      None: () => failwith("NFT not found")
+    });
+    // Assert owner == from
+    assert(owner == from_);
+
+    // Update the map to transfer it
+    let new_nft_map = Map.update(token_id, Some(to_), store.nft_map);
+    // Update both balances
+    let new_balance_map_tmp = match(Map.find_opt(from_, store.balance_map), {
+      Some: (balance) => Map.update(from_, Some(abs(balance - (1 as nat))), store.balance_map),
+      None: () => failwith("Impossible, it had an nft before")
+    });
+    let new_balance_map = match(Map.find_opt(to_, new_balance_map_tmp), {
+      Some: (balance: nat) => Map.update(to_, Some(balance + (1 as nat)), new_balance_map_tmp),
+      None: () => Map.add(to_, 1 as nat, new_balance_map_tmp)
+    });
+    return {nft_map: new_nft_map, balance_map: new_balance_map};
+  },
+  Balance_of: _ => failwith("Not implemented"),
+  Mint: _ => failwith("Not implemented"),
+  })]
+};
+
+const test_nft_contract = ((_: unit): unit => {
+    /* Create an account that will bet his NFT */
+    let [_, pk] = Test.new_account();
+    let main_account = Tezos.address(Tezos.implicit_account(Crypto.hash_key(pk)));
+    let receiver : contract<unit> = match ((Tezos.get_contract_opt (main_account) as option<contract<unit>>), {
+        Some: (contract : contract<unit>) => contract,
+        None: () => (failwith ("Not a contract") as contract<unit>)
+    });
+    let _ = Test.transfer_to_contract_exn(receiver, unit, 100 as tez);
+    /* 2nd acc */
+    let [_, pk] = Test.new_account();
+    let aux_account = Tezos.address(Tezos.implicit_account(Crypto.hash_key(pk)));
+    let receiver : contract<unit> = match ((Tezos.get_contract_opt (aux_account) as option<contract<unit>>), {
+        Some: (contract : contract<unit>) => contract,
+        None: () => (failwith ("Not a contract") as contract<unit>)
+    });
+    let _ = Test.transfer_to_contract_exn(receiver, unit, 100 as tez);
+    Test.log(["Accounts created", main_account, aux_account]);
+
+    /* First, deploy our NFT contract */
+    let init_storage = {nft_map: Map.literal(list([[0 as nat, main_account], [1 as nat, aux_account], [2 as nat, aux_account]])),
+                        balance_map: Map.literal(list([[main_account, 1 as nat], [aux_account, 2 as nat]]))};
+    let [contract_nft_ta, _code, _size] = Test.originate (nft_interface, init_storage, 0 as tez) ;
+    /* Convert typed_address to contract */
+    let contract_nft_ctr = Test.to_contract(contract_nft_ta);
+    /* Convert contract to address */
+    let contract_nft_contract_address = Tezos.address(contract_nft_ctr);
+    // Log the address of the contract
+    Test.log(["NFT contract address: ", contract_nft_contract_address]);
+
+    /* Originate the contract with a initial storage */
+    let init_storage: set<address> = Set.empty;
+    let init_floor_price: map<address, nat> = Map.empty;
+    let init_each_bet: map<address, nat> = Map.empty;
+    let init_each_nft: set<{address: address, id: nat}> = Set.empty;
+    let initial_storage = {whitelisted: init_storage, floor_price: init_floor_price, each_bet: init_each_bet, each_nft: init_each_nft, total_bet: 0 as nat};
+    let [nft_ta, _code, _size] = Test.originate (nft_contract, initial_storage, 0 as tez) ;
+    /* Convert typed_address to contract */
+    let nft_ctr = Test.to_contract(nft_ta);
+
+    Test.log(["Contract deployed, initial storage: ", initial_storage]);
+    Test.log(["State", Test.get_storage(nft_ta)]);
+    /* Check that both addresses are not whitelisted */
+    let nft_storage = Test.get_storage(nft_ta);
+    assert(Set.mem(contract_nft_contract_address, nft_storage.whitelisted) == false);
+    assert(Set.mem(testaddr1, nft_storage.whitelisted) == false);
+
+    // AddNFT
+    let test_result : test_exec_result = Test.transfer_to_contract(nft_ctr, AddNFT(contract_nft_contract_address), 0 as tez) ;
+    match (test_result, { Success: (_:unit) => { return unit; }, Fail: (e: test_exec_error) => failwith (e)});
+    /* Check that nft_contract_address is in the set, and that testaddr1 is not */
+    let nft_storage = Test.get_storage(nft_ta);
+    assert(Set.mem(contract_nft_contract_address, nft_storage.whitelisted) == true);
+    assert(Set.mem(testaddr1, nft_storage.whitelisted) == false);
+    /* Check that the floor price of testaddr1 is 0 */
+    assert(Map.find_opt(contract_nft_contract_address, nft_storage.floor_price) == Some(0 as nat));
+
+    // SetFloorPrice
+    let test_result : test_exec_result = Test.transfer_to_contract(nft_ctr, SetFloorPrice({address: contract_nft_contract_address, price: 1 as nat}), 0 as tez) ;
+    match (test_result, { Success: (_:unit) => { return unit; }, Fail: (e: test_exec_error) => failwith (e)});
+    /* Check that the floor price of testaddr1 is 1 */
+    let nft_storage = Test.get_storage(nft_ta);
+    assert(Map.find_opt(contract_nft_contract_address, nft_storage.floor_price) == Some(1 as nat));
+
+    /* Check that main_account have an NFT */
+    let nft_storage = Test.get_storage(contract_nft_ta);
+    assert(Map.find_opt(main_account, nft_storage.balance_map) == Some(1 as nat));
+
+    // BetNFT
+    Test.set_source(main_account);
+    let test_result : test_exec_result = Test.transfer_to_contract(nft_ctr, BetNFT({nftaddress: contract_nft_contract_address, id: 0 as nat}), 0 as tez);
+    match (test_result, { Success: (_:unit) => { return unit; }, Fail: (e: test_exec_error) => failwith (e)});
+    /* Check that the each_bet of main_account is 1 */
+    let nft_storage = Test.get_storage(nft_ta);
+    assert(Map.find_opt(main_account, nft_storage.each_bet) == Some(1 as nat));
+    /* Check that main_account lost his NFT */
+    let nft_storage = Test.get_storage(contract_nft_ta);
+    assert(Map.find_opt(main_account, nft_storage.balance_map) == Some(0 as nat));
+
+    // A 2nd BetNFT
+    Test.set_source(aux_account);
+    let test_result : test_exec_result = Test.transfer_to_contract(nft_ctr, BetNFT({nftaddress: contract_nft_contract_address, id: 1 as nat}), 0 as tez);
+    match (test_result, { Success: (_:unit) => { return unit; }, Fail: (e: test_exec_error) => failwith (e)});
+    let test_result : test_exec_result = Test.transfer_to_contract(nft_ctr, BetNFT({nftaddress: contract_nft_contract_address, id: 2 as nat}), 0 as tez);
+    match (test_result, { Success: (_:unit) => { return unit; }, Fail: (e: test_exec_error) => failwith (e)});
+    /* Check that the each_bet of testaddr1 is 2 */
+    let nft_storage = Test.get_storage(nft_ta);
+    assert(Map.find_opt(aux_account, nft_storage.each_bet) == Some(2 as nat));
+    /* Check that aux_account lost his NFT */
+    let nft_storage = Test.get_storage(contract_nft_ta);
+    assert(Map.find_opt(aux_account, nft_storage.balance_map) == Some(0 as nat));
+
+    /* Print every NFT that has been betted */
+    let nft_storage = Test.get_storage(nft_ta);
+    Test.log(["NFTs betted: ", nft_storage.each_nft]);
+
+    // Result
+    let test_result : test_exec_result = Test.transfer_to_contract(nft_ctr, Result({randomseed: 3 as nat}), 0 as tez);
+    match (test_result, { Success: (_:unit) => { return unit; }, Fail: (e: test_exec_error) => failwith (e)});
+    /* Check that the nft balance of main_account is 3 */
+    let nft_storage = Test.get_storage(contract_nft_ta);
+    // Log each nft balance
+    Test.log(["NFT balance of main_account: ", Map.find_opt(main_account, nft_storage.balance_map)]);
+    Test.log(["NFT balance of aux_account: ", Map.find_opt(aux_account, nft_storage.balance_map)]);
+    Test.log(["List of all NFTs: ", nft_storage.nft_map]);
+    assert(Map.find_opt(main_account, nft_storage.balance_map) == Some(3 as nat));
+    assert(Map.find_opt(aux_account, nft_storage.balance_map) == Some(0 as nat));
+    return unit;
+}) ();
+
+/* Todo
+
++ Voir comment deployer le bordel
++ Utiliser le vrai FA2 -> On a la bonne interface, plus qu'à tester sur testnet
++ Frontend
++ Faire un vrai floorprice
++ Faire un vrai random
++ Ajouter le temps avant de pouvoir appeler Result : https://ligolang.org/docs/faq/tezos-now-advance-time?lang=jsligo
+
+*/
+
+/* Todo atm
+
++ Deployer un nft sur le testnet - mouais
++ Finir le test avec
++ Faire un test complet avec un script
+
+*/
